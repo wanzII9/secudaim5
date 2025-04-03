@@ -1,1 +1,170 @@
-secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111secudaim_download_test1111
+// PacketCaptureDlg.cpp: 구현 파일
+ // Can depend on _DEBUG or NDEBUG macros
+
+#include "pch.h"
+#include "framework.h"
+#include "PacketCapture.h"
+#include "PacketCaptureDlg.h"
+#include "afxdialogex.h"
+#include "PcapLiveDeviceList.h"
+#include <PcapFileDevice.h>
+#include "Protocol.h"
+#include <PcapFilter.h>
+#include <SystemUtils.h>
+#include <fstream>
+#include <algorithm>
+#include <sstream> 
+#include <iomanip>
+#include "Data.h"
+#include "Filter.h"
+
+#include <winsock.h>
+#pragma comment(lib, "ws2_32")
+#pragma comment(lib, "iphlpapi.lib")
+
+#ifdef _DEBUG
+#define new DEBUG_NEW
+//#pragma comment(linker, "/entry:WinMainCRTStartup /subsystem:console")
+#define ENABLE_TRACE
+#endif
+
+
+// CPacketCaptureDlg 대화 상자
+
+CPacketCaptureDlg::CPacketCaptureDlg(CWnd* pParent /*=nullptr*/)
+	: CDialogEx(IDD_PACKETCAPTURE_DIALOG, pParent)
+{
+	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
+}
+
+void CPacketCaptureDlg::DoDataExchange(CDataExchange* pDX)
+{
+	CDialogEx::DoDataExchange(pDX);
+	DDX_Control(pDX, IDC_PACKET_LIST, m_PacketCaptureListCtrl);
+	DDX_Control(pDX, IDC_PACKET_TREE, m_PacketDataTreeCtrl);
+	DDX_Control(pDX, IDC_FILTER_EDIT, m_edit1);
+	DDX_Control(pDX, IDC_PACKETDUMP_LIST, m_PacketDumpListCtrl);
+	DDX_Control(pDX, IDC_COMBO_NETWORK, m_NetworkComboBox);
+	DDX_Control(pDX, IDC_STATIC_PACKETCNT, m_static1);
+	DDX_Control(pDX, IDC_STATIC_SELECTEDNET, m_static2);
+	DDX_Control(pDX, IDC_STATIC_STATE, m_static3);
+}
+
+BEGIN_MESSAGE_MAP(CPacketCaptureDlg, CDialogEx)
+	ON_WM_PAINT()
+	ON_WM_QUERYDRAGICON()
+	ON_BN_CLICKED(IDC_START_BUTTON, &CPacketCaptureDlg::OnBnClickedStartButton)
+	ON_BN_CLICKED(IDC_STOP_BUTTON, &CPacketCaptureDlg::OnBnClickedStopButton)
+	ON_BN_CLICKED(IDC_STOP_BUTTON, &CPacketCaptureDlg::OnBnClickedStopButton)
+	ON_MESSAGE(WM_UPDATE_STATS, &CPacketCaptureDlg::OnUpdateUI)
+	ON_NOTIFY(NM_CUSTOMDRAW, IDC_PACKET_LIST, &CPacketCaptureDlg::OnCustomdrawList)
+	ON_NOTIFY(NM_DBLCLK, IDC_PACKET_LIST, &CPacketCaptureDlg::OnNMDblclkList)
+	ON_BN_CLICKED(IDC_FILTER_BUTTON, &CPacketCaptureDlg::OnBnClickedFilterButton)
+	ON_COMMAND(ID_FILE_SAVE, &CPacketCaptureDlg::OnFileSave)
+	ON_COMMAND(ID_FILE_OPEN, &CPacketCaptureDlg::OnFileOpen)
+	ON_BN_CLICKED(IDC_NET_SELECT, &CPacketCaptureDlg::OnBnClickedNetSelect)
+	ON_UPDATE_COMMAND_UI(ID_FILE_SAVE, &CPacketCaptureDlg::OnUpdateFileSave)
+	ON_UPDATE_COMMAND_UI(ID_FILE_OPEN, &CPacketCaptureDlg::OnUpdateFileOpen)
+END_MESSAGE_MAP()
+
+
+// CPacketCaptureDlg 메시지 처리기
+BOOL CPacketCaptureDlg::OnInitDialog()
+{
+	CDialogEx::OnInitDialog();
+
+	// 이 대화 상자의 아이콘을 설정합니다.  응용 프로그램의 주 창이 대화 상자가 아닐 경우에는
+	//  프레임워크가 이 작업을 자동으로 수행합니다.
+	SetIcon(m_hIcon, TRUE);			// 큰 아이콘을 설정합니다.
+	SetIcon(m_hIcon, FALSE);		// 작은 아이콘을 설정합니다.
+
+	// TODO: 여기에 추가 초기화 작업을 추가합니다.
+	GetDlgItem(IDC_STOP_BUTTON)->EnableWindow(FALSE);
+	GetDlgItem(IDC_FILTER_BUTTON)->EnableWindow(FALSE);
+
+	// 네트워크 디바이스 목록 가져오기
+	int column_count = 1;
+	auto deviceList = pcpp::PcapLiveDeviceList::getInstance().getPcapLiveDevicesList();
+	for (const auto& dev : deviceList) {
+		if (dev->getLinkType() == pcpp::LINKTYPE_ETHERNET) {
+			CString device_name(dev->getName().c_str());
+			CString device_desc(dev->getDesc().c_str());
+
+			// 콤보박스에 아이템 추가 (네트워크 이름 + 설명)
+			CString itemText;
+			itemText.Format(_T("%d) %s %s"), column_count, device_desc, device_name);
+			m_NetworkComboBox.AddString(itemText);
+
+			m_DeviceList.push_back(dev);
+
+			column_count++;
+		}
+	}
+
+	if (m_NetworkComboBox.GetCount() == 0) {
+		MessageBox(_T("There are no connected network interfaces"), L"Error");
+		return -1;
+	}
+
+	//PacketCaptureListCtrl
+	CRect rectangle;
+	m_PacketCaptureListCtrl.GetWindowRect(&rectangle); //ListCtrl의 윈도우 크기 가져옴. 각 열의 너비 계산시 사용
+	m_PacketCaptureListCtrl.SetExtendedStyle(LVS_EX_GRIDLINES | LVS_EX_FULLROWSELECT);	//그리드 라인 표시, 행 전체 선택할 수 있도록
+	LV_COLUMN add_column;	//구조체를 사용해 List Ctrl의 각 열 설정
+	add_column.mask = LVCF_TEXT | LVCF_WIDTH;
+
+	const int packet_list_column_count = 8;
+	LPWSTR column_name[packet_list_column_count] = { _T("No"), _T("Time"), _T("Source"), _T("Destination"), _T("Protocol"), _T("Length"), _T("Info")};
+	double column_width[packet_list_column_count] = { 0.05, 0.15, 0.15, 0.15, 0.07, 0.05, 0.4};	//열 너비의 비율
+
+	for (int i = 0; i < packet_list_column_count - 1; i++) {
+		add_column.pszText = column_name[i];	//열의 이름 설정
+		add_column.cx = (double)rectangle.Width() * column_width[i]; //열의 너비 설정. rectangle.Width()는 각 열의 너비를 비율로 계산
+		m_PacketCaptureListCtrl.InsertColumn(i, &add_column);		// 열을 List Ctrl에 삽입
+	}
+
+	//PacketDumpListCtrl
+	m_PacketDumpListCtrl.GetWindowRect(&rectangle);
+	m_PacketDumpListCtrl.SetExtendedStyle(LVS_EX_GRIDLINES | LVS_EX_FULLROWSELECT);
+
+	const int packet_dump_column_count = 4;
+	LPWSTR packet_dump_header[packet_dump_column_count] = { L"Seq",L"Hex 1",L"HEX 2", L"ASCII" };
+	double pakcet_dump_header_width[packet_dump_column_count] = { 0.09,0.33,0.33,0.32 };
+
+	for (int i = 0; i < packet_dump_column_count; i++) {
+		add_column.pszText = packet_dump_header[i];
+		add_column.cx = rectangle.Width() * pakcet_dump_header_width[i];
+		m_PacketDumpListCtrl.InsertColumn(i, &add_column);
+	}
+
+	return TRUE;  // 포커스를 컨트롤에 설정하지 않으면 TRUE를 반환합니다.
+}
+
+// 대화 상자에 최소화 단추를 추가할 경우 아이콘을 그리려면
+//  아래 코드가 필요합니다.  문서/뷰 모델을 사용하는 MFC 애플리케이션의 경우에는
+//  프레임워크에서 이 작업을 자동으로 수행합니다.
+
+void CPacketCaptureDlg::OnPaint()
+{
+	if (IsIconic())
+	{
+		CPaintDC dc(this); // 그리기를 위한 디바이스 컨텍스트입니다.
+
+		SendMessage(WM_ICONERASEBKGND, reinterpret_cast<WPARAM>(dc.GetSafeHdc()), 0);
+
+		// 클라이언트 사각형에서 아이콘을 가운데에 맞춥니다.
+		int cxIcon = GetSystemMetrics(SM_CXICON);
+		int cyIcon = GetSystemMetrics(SM_CYICON);
+		CRect rect;
+		GetClientRect(&rect);
+		int x = (rect.Width() - cxIcon + 1) / 2;
+		int y = (rect.Height() - cyIcon + 1) / 2;
+
+		// 아이콘을 그립니다.
+		dc.DrawIcon(x, y, m_hIcon);
+	}
+	else
+	{
+		CDialogEx::OnPaint();
+	}
+}
